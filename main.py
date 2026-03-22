@@ -417,7 +417,6 @@ async def handler_mulai(event):
         "Pilih sumber data GSuite:"
     )
     buttons = [
-        //[Button.inline("Dari file gsuite.txt", b"mulai_file")],
         [Button.inline("Kirim file / text baru", b"mulai_input")],
         [Button.inline("Kembali", b"menu_utama")],
     ]
