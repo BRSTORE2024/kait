@@ -1,5 +1,5 @@
 MAX_THREADS = 10   # Maksimal thread sesuai request
-HEADLESS = True
+HEADLESS = False
 DEBUG = False
 
 # Telegram Bot Config
