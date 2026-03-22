@@ -1,0 +1,78 @@
+╔══════════════════════════════════════════════════════════╗
+║       GSUITE x GOPAY — AUTO LINK CLI (SETUP GUIDE)      ║
+╚══════════════════════════════════════════════════════════╝
+
+  📦  STEP 1 — Install Dependencies
+  ──────────────────────────────────
+      pip install -r requirements.txt
+      playwright install chromium
+
+  📝  STEP 2 — Konfigurasi (config.py)
+  ──────────────────────────────────
+      Buka file config.py, sesuaikan jika perlu:
+
+        MAX_THREADS = 10    # Jumlah thread maksimal
+        HEADLESS    = True  # True = tanpa browser window
+        DEBUG       = False # True = log detail per thread
+
+  📱  STEP 3 — Setup Data GoPay
+  ──────────────────────────────────
+      Isi file gopay.txt dengan format:
+          nohp|pin
+
+      Contoh:
+          89123456789|808182
+
+      ⚠  Pastikan nomor HP terdaftar di GoPay dan WhatsApp.
+      ⚠  Bisa juga ditambah/diedit lewat menu CLI nanti.
+
+  📧  STEP 4 — Setup Data GSuite
+  ──────────────────────────────────
+      Isi file gsuite.txt dengan format:
+          email|password
+
+      Contoh:
+          user@gmail.com|mypassword123
+
+      ⚠  Bisa juga ditambah/diedit lewat menu CLI nanti.
+
+  🌐  STEP 5 — Setup Ngrok
+  ──────────────────────────────────
+      a. Daftar akun di  : https://dashboard.ngrok.com/signup
+      b. Login, masuk ke menu Authtokens → Add Authtoken
+         → Save → Copy authtoken
+      c. Jalankan di terminal:
+
+             ngrok config add-authtoken TOKEN_KAMU
+
+  🚀  STEP 6 — Jalankan CLI
+  ──────────────────────────────────
+      Jalankan:
+
+          python main.py
+
+      Menu utama akan tampil di terminal:
+
+        [1] 🚀 Mulai Proses (GSuite x GoPay)
+        [2] 📡 Generate Ngrok URL
+        [3] 📧 Kelola Data GSuite
+        [4] 📱 Kelola Data GoPay
+        [5] 📊 Status Konfigurasi
+        [6] 📁 Lihat Hasil
+        [7] 🚪 Keluar
+
+  📡  Cara Setup Notif Forwarder
+  ──────────────────────────────────
+      1. Pilih menu [2] Generate Ngrok URL di CLI
+      2. Script akan menampilkan URL webhook per HP, contoh:
+           HP 1 (GoPay 89123456789): https://xxxx.ngrok.io/t1
+           HP 2 (GoPay 89234567890): https://xxxx.ngrok.io/t2
+      3. Buka aplikasi Notif Forwarder di HP, paste URL
+         yang sesuai dengan nomor GoPay masing-masing
+      4. Tekan ENTER di CLI untuk menutup ngrok
+      5. Kembali ke menu utama, pilih [1] untuk mulai proses
+
+╔══════════════════════════════════════════════════════════╗
+║  Semua operasi dilakukan lewat menu CLI interaktif.      ║
+║  Tidak perlu Telegram atau database.                     ║
+╚══════════════════════════════════════════════════════════╝
