@@ -97,6 +97,8 @@ def ensure_ngrok():
 
     if http_server is None:
         http_server = HTTPServer(("0.0.0.0", PORT), WebhookHandler)
+        # Tambahkan agar port bisa langsung digunakan kembali setelah shutdown
+        http_server.allow_reuse_address = True 
         Thread(target=http_server.serve_forever, daemon=True).start()
 
     if not public_url_global:
@@ -212,7 +214,7 @@ def main_menu_text():
 def execute_process_sync(gsuite_data, gopay_data, num_threads, chat_id, loop):
     """Run the linking process (blocking, called in thread)."""
     import gopay as gopay_module
-    global running_process
+    global running_process, http_server, public_url_global
 
     start_time = time.time()
 
@@ -302,7 +304,7 @@ def execute_process_sync(gsuite_data, gopay_data, num_threads, chat_id, loop):
     elapsed = time.time() - start_time
     duration_str = format_duration(elapsed)
 
-    # Save result file dengan nama: result-tanggalbulantahun-jam.txt
+    # Save result file
     now = datetime.now()
     result_filename = f"result-{now.strftime('%d%m%Y-%H%M%S')}.txt"
     with open(result_filename, "w", encoding="utf-8") as f:
@@ -324,6 +326,337 @@ def execute_process_sync(gsuite_data, gopay_data, num_threads, chat_id, loop):
 
     if counters["gagal_akun"]:
         with open("gagal.txt", "w", encoding="utf-8") as f:
+            for akun in counters["gagal_akun"]:
+                f.write(akun + "\n")
+
+    caption = (
+        f"📊 **RESULT**\n"
+        f"✅ Berhasil: {counters['berhasil']}\n"
+        f"❌ Gagal: {counters['gagal']}\n"
+        f"⏱ Durasi: {duration_str}"
+    )
+
+    async def send_result():
+        await bot.send_file(
+            chat_id,
+            result_filename,
+            caption=caption,
+        )
+        await bot.send_message(
+            chat_id,
+            "Proses selesai. Kembali ke menu utama:",
+            buttons=main_menu_buttons(),
+        )
+        # BERSIHKAN FILE DARI SERVER SETELAH TERKIRIM
+        if os.path.exists(result_filename):
+            os.remove(result_filename)
+
+    asyncio.run_coroutine_threadsafe(send_result(), loop)
+
+    # --- KOSONGKAN STATUS GSUITE SETELAH SELESAI ---
+    try:
+        with open("gsuite.txt", "w", encoding="utf-8") as f:
+            f.write("") # Mengosongkan isi file
+    except Exception:
+        pass
+
+    # --- FIX NGROK 400 ERROR ---
+    time.sleep(5) 
+
+    try:
+        from pyngrok import ngrok
+        ngrok.kill()
+    except Exception:
+        pass
+    
+    try:
+        if http_server:
+            http_server.shutdown()
+            http_server.server_close()
+    except Exception:
+        pass
+
+    http_server = None
+    public_url_global = ""
+    with running_lock:
+        running_process = False
+
+
+# ========================= BOT SETUP =========================
+
+bot = TelegramClient("bot_session", API_ID, API_HASH).start(bot_token=BOT_TOKEN)
+
+
+def is_admin(event):
+    return event.sender_id in ADMIN_IDS
+
+
+@bot.on(events.NewMessage(pattern="/start"))
+async def handler_start(event):
+    if not is_admin(event):
+        await event.respond("⛔ Akses ditolak.")
+        return
+    user_states.pop(event.chat_id, None)
+    await event.respond(main_menu_text(), buttons=main_menu_buttons(), parse_mode="md")
+
+
+@bot.on(events.CallbackQuery(data=b"menu_utama"))
+async def handler_back_menu(event):
+    if not is_admin(event):
+        return
+    user_states.pop(event.chat_id, None)
+    await event.edit(main_menu_text(), buttons=main_menu_buttons(), parse_mode="md")
+
+
+# ─── MULAI ───
+
+@bot.on(events.CallbackQuery(data=b"menu_mulai"))
+async def handler_mulai(event):
+    if not is_admin(event):
+        return
+    global running_process
+
+    with running_lock:
+        if running_process:
+            await event.answer("Proses sedang berjalan, tunggu hingga selesai.", alert=True)
+            return
+
+    gopay_data = load_gopay_from_file()
+    if not gopay_data:
+        await event.answer("gopay.txt kosong! Tambah GoPay dulu.", alert=True)
+        return
+
+    gsuite_data = load_gsuite_from_file()
+    text = (
+        "**MULAI PROSES**\n"
+        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"GSuite di file: **{len(gsuite_data)} akun**\n\n"
+        "Pilih sumber data GSuite:"
+    )
+    # TOMBOL 'Dari file gsuite.txt' DIHAPUS
+    buttons = [
+        [Button.inline("Kirim file / text baru", b"mulai_input")],
+        [Button.inline("Kembali", b"menu_utama")],
+    ]
+    await event.edit(text, buttons=buttons, parse_mode="md")
+
+
+@bot.on(events.CallbackQuery(data=b"mulai_file"))
+async def handler_mulai_file(event):
+    if not is_admin(event):
+        return
+    global running_process
+
+    gsuite_data = load_gsuite_from_file()
+    if not gsuite_data:
+        await event.answer("gsuite.txt kosong! Kirim file atau text dulu.", alert=True)
+        return
+
+    gopay_data = load_gopay_from_file()
+    num_threads = min(len(gopay_data), MAX_THREADS)
+
+    with running_lock:
+        if running_process:
+            await event.answer("Proses sedang berjalan!", alert=True)
+            return
+        running_process = True
+
+    await event.edit(
+        f"Memulai proses...\n"
+        f"GSuite: {len(gsuite_data)} | GoPay: {len(gopay_data)} | Threads: {num_threads}",
+        buttons=None, parse_mode="md"
+    )
+
+    loop = asyncio.get_event_loop()
+    chat_id = event.chat_id
+
+    Thread(
+        target=execute_process_sync,
+        args=(gsuite_data, gopay_data, num_threads, chat_id, loop),
+        daemon=True
+    ).start()
+
+
+@bot.on(events.CallbackQuery(data=b"mulai_input"))
+async def handler_mulai_input(event):
+    if not is_admin(event):
+        return
+    user_states[event.chat_id] = "waiting_gsuite"
+    await event.edit(
+        "**Kirim data GSuite:**\n\n"
+        "Bisa kirim **file .txt** atau ketik langsung format:\n"
+        "`email|password`\n"
+        "(satu per baris)\n\n"
+        "Ketik /cancel untuk batal.",
+        buttons=None, parse_mode="md"
+    )
+
+
+# ─── KELOLA GOPAY ───
+
+def gopay_list_text():
+    gopay_data = load_gopay_from_file()
+    lines = ""
+    if gopay_data:
+        for i, (phone, pin) in enumerate(gopay_data, 1):
+            lines += f"  {i}. `{phone}` | `{'*' * len(pin)}`\n"
+    else:
+        lines = "  (kosong)\n"
+    return (
+        f"📱 **DATA GOPAY ({len(gopay_data)} akun)**\n"
+        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"{lines}"
+    )
+
+
+@bot.on(events.CallbackQuery(data=b"menu_gopay"))
+async def handler_gopay_menu(event):
+    if not is_admin(event):
+        return
+    gopay_data = load_gopay_from_file()
+    buttons = [
+        [Button.inline("➕ Add GoPay", b"gopay_add")],
+    ]
+    if gopay_data:
+        for i, (phone, _) in enumerate(gopay_data):
+            buttons.append([Button.inline(f"🗑 Hapus {phone}", f"gopay_del_{i}".encode())])
+    buttons.append([Button.inline("🔙 Kembali", b"menu_utama")])
+
+    await event.edit(gopay_list_text(), buttons=buttons, parse_mode="md")
+
+
+@bot.on(events.CallbackQuery(data=b"gopay_add"))
+async def handler_gopay_add(event):
+    if not is_admin(event):
+        return
+    user_states[event.chat_id] = "waiting_gopay"
+    await event.edit(
+        gopay_list_text() + "\n"
+        "Kirim data GoPay baru format:\n"
+        "`nohp|pin`\n"
+        "(satu per baris)\n\n"
+        "Ketik /cancel untuk batal.",
+        buttons=None, parse_mode="md"
+    )
+
+
+@bot.on(events.CallbackQuery(pattern=rb"gopay_del_(\d+)"))
+async def handler_gopay_delete(event):
+    if not is_admin(event):
+        return
+    idx = int(event.pattern_match.group(1))
+    gopay_data = load_gopay_from_file()
+
+    if idx < 0 or idx >= len(gopay_data):
+        await event.answer("Data tidak ditemukan.", alert=True)
+        return
+
+    removed_phone, _ = gopay_data[idx]
+    gopay_data.pop(idx)
+
+    with open("gopay.txt", "w", encoding="utf-8") as f:
+        for phone, pin in gopay_data:
+            f.write(f"{phone}|{pin}\n")
+
+    await event.answer(f"{removed_phone} dihapus!")
+
+    # Refresh menu
+    buttons = [
+        [Button.inline("➕ Add GoPay", b"gopay_add")],
+    ]
+    if gopay_data:
+        for i, (phone, _) in enumerate(gopay_data):
+            buttons.append([Button.inline(f"🗑 Hapus {phone}", f"gopay_del_{i}".encode())])
+    buttons.append([Button.inline("🔙 Kembali", b"menu_utama")])
+
+    await event.edit(gopay_list_text(), buttons=buttons, parse_mode="md")
+
+
+# ─── KELOLA CONFIG ───
+
+def config_text():
+    return (
+        "⚙️ **KONFIGURASI**\n"
+        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"🧵 MAX_THREADS : `{read_config_value('MAX_THREADS')}`\n"
+        f"👻 HEADLESS    : `{read_config_value('HEADLESS')}`\n"
+        f"🐛 DEBUG       : `{read_config_value('DEBUG')}`\n"
+        f"👤 ADMIN_IDS   : `{read_config_value('ADMIN_IDS')}`\n"
+        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        "Pilih yang mau diubah:"
+    )
+
+
+def config_buttons():
+    headless = read_config_value('HEADLESS')
+    debug = read_config_value('DEBUG')
+    return [
+        [Button.inline(f"🧵 MAX_THREADS: {read_config_value('MAX_THREADS')}", b"cfg_threads")],
+        [Button.inline(f"👻 HEADLESS: {'ON' if headless else 'OFF'}", b"cfg_headless")],
+        [Button.inline(f"🐛 DEBUG: {'ON' if debug else 'OFF'}", b"cfg_debug")],
+        [Button.inline("👤 Edit ADMIN_IDS", b"cfg_admins")],
+        [Button.inline("🔙 Kembali", b"menu_utama")],
+    ]
+
+
+@bot.on(events.CallbackQuery(data=b"menu_config"))
+async def handler_config_menu(event):
+    if not is_admin(event):
+        return
+    await event.edit(config_text(), buttons=config_buttons(), parse_mode="md")
+
+
+@bot.on(events.CallbackQuery(data=b"cfg_headless"))
+async def handler_cfg_headless(event):
+    if not is_admin(event):
+        return
+    current = read_config_value('HEADLESS')
+    write_config_value('HEADLESS', not current)
+    await event.answer(f"HEADLESS → {'OFF' if current else 'ON'}")
+    await event.edit(config_text(), buttons=config_buttons(), parse_mode="md")
+
+
+@bot.on(events.CallbackQuery(data=b"cfg_debug"))
+async def handler_cfg_debug(event):
+    if not is_admin(event):
+        return
+    current = read_config_value('DEBUG')
+    write_config_value('DEBUG', not current)
+    await event.answer(f"DEBUG → {'OFF' if current else 'ON'}")
+    await event.edit(config_text(), buttons=config_buttons(), parse_mode="md")
+
+
+@bot.on(events.CallbackQuery(data=b"cfg_threads"))
+async def handler_cfg_threads(event):
+    if not is_admin(event):
+        return
+    user_states[event.chat_id] = "waiting_cfg_threads"
+    await event.edit(
+        f"🧵 **MAX_THREADS** saat ini: `{read_config_value('MAX_THREADS')}`\n\n"
+        "Kirim angka baru (1-50):\n\n"
+        "Ketik /cancel untuk batal.",
+        buttons=None, parse_mode="md"
+    )
+
+
+@bot.on(events.CallbackQuery(data=b"cfg_admins"))
+async def handler_cfg_admins(event):
+    if not is_admin(event):
+        return
+    user_states[event.chat_id] = "waiting_cfg_admins"
+    current = read_config_value('ADMIN_IDS')
+    ids_str = "\n".join(f"  - `{uid}`" for uid in current)
+    await event.edit(
+        f"👤 **ADMIN_IDS** saat ini:\n{ids_str}\n\n"
+        "Kirim daftar user ID baru (satu per baris atau pisah koma):\n\n"
+        "Ketik /cancel untuk batal.",
+        buttons=None, parse_mode="md"
+    )
+
+
+# ─── SHOW URL WEBHOOK ───
+
+@      with open("gagal.txt", "w", encoding="utf-8") as f:
             for akun in counters["gagal_akun"]:
                 f.write(akun + "\n")
 
