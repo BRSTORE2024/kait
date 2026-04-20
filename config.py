@@ -3,7 +3,7 @@ HEADLESS = False
 DEBUG = False
 
 # Telegram Bot Config
-BOT_TOKEN = "7954374267:AAEBqIT7HdP0CRe_qz3tbhw1Z54BRHADwdc"
+BOT_TOKEN = "8666645997:AAF7z1VZwKlazZvW355MmdXo5wyf2gs-VuY"
 API_ID = 2040 #tidak boleh dirubah
 API_HASH = "b18441a1ff607e10a989891a5462e627" #tidak boleh dirubah
 
