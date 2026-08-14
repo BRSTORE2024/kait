@@ -55,8 +55,8 @@ def update_status(thread_id,msg):
 		return
 	thread_status[A]=B
 	with print_lock:
-		C=num_dashboard_threads-A+1;sys.stdout.write(f"[{C}A");sys.stdout.write(f"[2K");D=B[:56];sys.stdout.write(f"  T{A}: {D}\n")
-		if C>1:sys.stdout.write(f"[{C-1}B")
+		C=num_dashboard_threads-A+1;sys.stdout.write(f" \033[{C}A");sys.stdout.write(f" \033[2K");D=B[:56];sys.stdout.write(f"  T{A}: {D}\n")
+		if C>1:sys.stdout.write(f" \033[{C-1}B")
 		sys.stdout.flush()
 def safe_print(msg):
 	'Legacy safe_print - tetap ada untuk backward compatibility.'
@@ -122,7 +122,7 @@ def process_account(email,password,phone,pin,thread_id=0,webhook_url=''):
 	except FileNotFoundError:A9={}
 	U=_D;V=_D
 	try:
-		U=sync_playwright().start();V=U.chromium.launch(headless=HEADLESS,args=['--disable-web-security','--disable-features=site-per-process','--disable-blink-features=AutomationControlled','--no-sandbox','--disable-dev-shm-usage','--disable-gpu','--disable-software-rasterizer','--disable-extensions','--disable-background-networking','--disable-default-apps','--disable-sync','--disable-translate','--metrics-recording-only','--no-first-run','--incognito','--lang=id-ID','--blink-settings=imagesEnabled=false']);AA=V.new_context(locale=k,viewport={'width':1280,'height':720},extra_http_headers={z:k},bypass_csp=_A);B=AA.new_page()
+		U=sync_playwright().start();V=U.chromium.launch(headless=HEADLESS,args=['--headless=new','--disable-web-security','--disable-features=site-per-process','--disable-blink-features=AutomationControlled','--no-sandbox','--disable-dev-shm-usage','--disable-gpu','--disable-software-rasterizer','--disable-extensions','--disable-background-networking','--disable-default-apps','--disable-sync','--disable-translate','--metrics-recording-only','--no-first-run','--incognito','--lang=id-ID','--blink-settings=imagesEnabled=false']);AA=V.new_context(locale=k,viewport={'width':1280,'height':720},extra_http_headers={z:k},bypass_csp=_A,user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');B=AA.new_page()
 		if HAS_STEALTH:stealth_sync(B)
 		try:
 			update_status(A,f"{info} Buka Google Play...");B.set_extra_http_headers({z:k});B.goto(l,timeout=300000);B.wait_for_load_state(A0);time.sleep(2);update_status(A,f"{info} Input email...")
@@ -138,10 +138,16 @@ def process_account(email,password,phone,pin,thread_id=0,webhook_url=''):
 			try:B.get_by_role(M,name=A2).click(timeout=4000)
 			except:B.keyboard.press(N)
 			time.sleep(3)
-			try:B.locator('input[name="confirm"][value="Saya mengerti"]').click(timeout=4000);update_status(A,f"{success} Klik 'Saya mengerti'")
+			B.screenshot(path=f"debug_layar_headless_t{A}.png")
+			try:B.locator('input[name="confirm"][value="Saya mengerti"]').click(timeout=4000);update_status(A,f"{success} Klik 'Saya mengerti' (input)")
 			except:
-				try:B.locator('input[name="confirm"]').click(timeout=3000);update_status(A,f"{success} Klik confirm")
-				except:update_status(A,f"{warning} Tombol confirm tidak ada, lanjut...")
+				try:
+					B.locator('span[jsname="V67aGc"].VfPpkd-vQzf8d:has-text("Saya mengerti")').wait_for(state='visible', timeout=5000)
+					B.locator('span[jsname="V67aGc"].VfPpkd-vQzf8d:has-text("Saya mengerti")').click(timeout=4000)
+					update_status(A,f"{success} Klik 'Saya mengerti' (span)")
+				except:
+					try:B.locator('input[name="confirm"]').click(timeout=3000);update_status(A,f"{success} Klik confirm")
+					except:update_status(A,f"{warning} Tombol confirm tidak ada, lanjut...")
 			try:
 				B.wait_for_url('**/passkeyenrollment**',timeout=8000);time.sleep(2)
 				try:B.get_by_text('Lain kali').click(timeout=5000)
